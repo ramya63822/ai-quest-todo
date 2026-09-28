@@ -28,53 +28,39 @@ I wanted a simple to-do app, but every one I tried came with ads, subscriptions,
 
 ### Run Locally
 ```bash
-git clone [https://github.com/ramya63822/ai-quest-todo.git](https://github.com/ramya63822/ai-quest-todo.git)
+git clone https://github.com/ramya63822/ai-quest-todo.git
 cd ai-quest-todo
+
 Then open index.html in your browser. There is nothing to install or build!
 
 Enable the AI Features
 The to-do list, heatmap, and streak work without any setup. The AI buttons need your own free Gemini API key:
-
-Get a key from Google AI Studio.
-
-Click the 🔑 icon in the app header and paste the key.
-
-Type a brain dump and hit Organize Thoughts.
+- Get a key from Google AI Studio.
+- Click the 🔑 icon in the app header and paste the key.
+- Type a brain dump and hit Organize Thoughts.
 
 Note: Your key is stored only in your browser and is sent solely to Google's Gemini API. It is never part of this repository.
 
 🧠 How the AI Part Works
-Requests go straight from the browser to the Gemini generateContent endpoint.
-
-The default model is gemini-3.5-flash-lite, which is small and fast enough for turning text into tasks.
-
-If it is busy, the app retries with short back-off and then falls back to gemini-3.8-flash.
-
-The prompt tells the model to use only what you wrote and return a JSON array of short tasks.
-
-Model names are constants at the top of the AI section in index.html (GEMINI_MODEL, GEMINI_FALLBACK_MODEL), so you can swap them easily.
+- Requests go straight from the browser to the Gemini generateContent endpoint.
+- The default model is gemini-3.5-flash-lite, which is small and fast enough for turning text into tasks.
+- If it is busy, the app retries with short back-off and then falls back to gemini-3.8-flash.
+- The prompt tells the model to use only what you wrote and return a JSON array of short tasks.
+- Model names are constants at the top of the AI section in index.html (GEMINI_MODEL, GEMINI_FALLBACK_MODEL), so you can swap them easily.
 
 🛠️ Tech Stack
-HTML, CSS, and Vanilla JavaScript (single file)
-
-Tailwind CSS (CDN build)
-
-Lucide Icons
-
-Google Gemini API
-
-localStorage for data persistence
+- HTML, CSS, and Vanilla JavaScript (single file)
+- Tailwind CSS (CDN build)
+- Lucide Icons
+- Google Gemini API
+- localStorage for data persistence
 
 🌐 Deploy Your Own Copy
 It's a single static file, so GitHub Pages works right out of the box:
-
-Fork or upload this repo to your GitHub account.
-
-Go to Settings → Pages.
-
-Under Source, choose Deploy from a branch, then select main and / (root).
-
-Click Save. Your site will be live at https://<your-username>.github.io/<repo-name>/ in about a minute!
+- Fork or upload this repo to your GitHub account.
+- Go to Settings → Pages.
+- Under Source, choose Deploy from a branch, then select main and / (root).
+- Click Save. Your site will be live at https://<your-username>.github.io/<repo-name>/ in about a minute!
 
 🤝 Contributing
 It's a small personal project, but ideas and PRs are welcome. Fork it, make it yours, and open an issue if you have a suggestion.
