@@ -64,4 +64,4 @@ It's a small personal project, but ideas and PRs are welcome. Fork it, make it y
 MIT. Use it, fork it, change it freely.
 
 ---
-Built by Ramyaa · LinkedIn
+Built by Ramyaa · [LinkedIn](https://www.linkedin.com/in/ramyasreesv/)
