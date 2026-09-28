@@ -333,7 +333,10 @@
                     <button onclick="toggleTask(${task.id})" class="w-6 h-6 shrink-0 rounded-md border-2 flex items-center justify-center transition-colors ${task.completed ? 'accent-bg border-transparent' : 'border-custom hover:border-[var(--accent-color)]'}">
                         ${task.completed ? `<i data-lucide="check" class="w-4 h-4 text-white"></i>` : ''}
                     </button>
-                    <span class="text-[15px] font-semibold flex-1 ${task.completed ? 'line-through text-muted' : 'text-color'}">${task.text}</span>
+                    <div class="flex-1 min-w-0">
+                        <span class="text-[15px] font-semibold ${task.completed ? 'line-through text-muted' : 'text-color'}">${task.text}</span>
+                        ${task.basic && !task.completed ? `<div class="flex flex-wrap items-center gap-2 mt-2"><span class="text-[10px] uppercase tracking-wider bg-amber-500/20 text-amber-500 border border-amber-500/30 px-2 py-0.5 rounded">⚠️ basic split</span><button onclick="reorganizeWithAI(${task.id})" class="text-xs font-semibold accent-text hover:opacity-80 transition-opacity">✨ Re-organize with AI</button></div>` : ''}
+                    </div>
                     <button onclick="deleteTask(${task.id})" class="text-muted hover:text-red-500 transition-colors p-1.5 rounded-lg hover:bg-red-500/10">
                         <i data-lucide="trash-2" class="w-4 h-4"></i>
                     </button>
@@ -423,8 +426,9 @@
         }
 
         // --- AI API INTEGRATION (gemini-3.8-flash, real responses only, no fake fallback) ---
-        const GEMINI_MODEL = 'gemini-3.5-flash-lite';   // small, fast, rarely busy
-        const GEMINI_FALLBACK_MODEL = 'gemini-3.8-flash';
+        const GEMINI_MODEL = 'gemini-3.1-flash-lite';   // older stable lite model, usually less busy
+        const GEMINI_FALLBACK_MODEL = 'gemini-3.5-flash-lite';
+        const GEMINI_FALLBACK_MODEL_2 = 'gemini-3.8-flash';
         let GEMINI_API_KEY = localStorage.getItem('gemini_api_key') || '';
         if(GEMINI_API_KEY) { 
             statusBadge.innerText = 'Connected'; 
@@ -456,7 +460,7 @@
             const body = { contents: [{ parts: [{ text: promptText }] }] };
             if (type === 'quests') body.generationConfig = { responseMimeType: 'application/json', temperature: 0.2 };
 
-            const models = [GEMINI_MODEL, GEMINI_FALLBACK_MODEL];
+            const models = [GEMINI_MODEL, GEMINI_FALLBACK_MODEL, GEMINI_FALLBACK_MODEL_2];
             const MAX_TRIES = 3;
             let primaryError = null;
 
@@ -473,7 +477,7 @@
                         });
                         data = await response.json().catch(() => ({}));
                     } catch (netErr) {
-                        if (attempt < MAX_TRIES) { await sleep(1500 * attempt); continue; }
+                        if (attempt < MAX_TRIES) { await sleep(2500 * attempt); continue; }
                         primaryError = primaryError || netErr; break;
                     }
 
@@ -490,19 +494,58 @@
 
                     if (busy && attempt < MAX_TRIES) {
                         msgEl.innerText = `Gemini is busy, retrying (${attempt}/${MAX_TRIES - 1})...`;
-                        await sleep(1500 * attempt);
+                        await sleep(2500 * attempt);
                         continue;
                     }
                     if (!busy && m === 0) throw err;   // real error on the main model (bad key, bad request...)
                     break;                              // busy for too long, or fallback model unavailable
                 }
-                if (m === 0) msgEl.innerText = "Main model is busy, trying backup model...";
+                if (m < models.length - 1) msgEl.innerText = `${models[m]} is busy, trying ${models[m + 1]}...`;
             }
-            throw primaryError || new Error("Gemini is unavailable right now");
+            const busyErr = new Error(`All Gemini models are busy right now. (${primaryError ? primaryError.message : "no response"})`);
+            busyErr.busy = true;
+            throw busyErr;
         }
 
         const msgEl = document.getElementById('aiMessage');
         const brainDumpInput = document.getElementById('brainDumpInput');
+
+        // Asks Gemini to turn text into a task list (real AI). Throws if the AI can't be reached.
+        async function askGeminiForTasks(dumpText) {
+            const prompt = `You are a precise task manager. Convert the brain dump below into a checklist of actionable tasks.
+Rules:
+- Use ONLY what the user actually wrote. Do NOT invent goals, topics, tools, names, or details that are not in the text.
+- Each thing the user mentioned becomes one task. If a goal is big or vague (e.g. "learn transformers"), you may split it into 2-3 concrete sub-steps about that same goal only.
+- Keep each task short (under 12 words), starting with a verb.
+- Return between 1 and 8 tasks, however many the text really needs. Do not pad the list.
+- Return ONLY a raw JSON array of strings, no markdown, no explanation.
+
+Brain dump: """${dumpText}"""`;
+
+            let rawRes = await callGemini(prompt, 'quests');
+            rawRes = rawRes.replace(/```json/g, '').replace(/```/g, '').trim();
+
+            let quests;
+            try { quests = JSON.parse(rawRes); }
+            catch (e) {
+                const m = rawRes.match(/\[[\s\S]*\]/);
+                if (!m) throw new Error("Could not read the AI response");
+                quests = JSON.parse(m[0]);
+            }
+            quests = quests.filter(q => typeof q === 'string' && q.trim());
+            if (!quests.length) throw new Error("AI returned no tasks");
+            return quests;
+        }
+
+        // BACKUP MODE (no AI): simple split on new lines, ; . , "and then" / "then". Always labelled in the UI.
+        function basicSplit(userInput) {
+            const parts = userInput
+                .split(/\n|;|\.|,|\sand\sthen\s|\sthen\s/i)
+                .map(p => p.trim())
+                .filter(p => p.length > 2)
+                .map(p => p.charAt(0).toUpperCase() + p.slice(1));
+            return parts.length ? parts : [userInput.trim()];
+        }
 
         window.generateAIQuests = async () => {
             const loader = document.getElementById('loaderGen');
@@ -520,37 +563,49 @@
             document.getElementById('btnGenerate').disabled = true; loader.style.display = 'block';
 
             try {
-                const prompt = `You are a precise task manager. Convert the brain dump below into a checklist of actionable tasks.
-Rules:
-- Use ONLY what the user actually wrote. Do NOT invent goals, topics, tools, names, or details that are not in the text.
-- Each thing the user mentioned becomes one task. If a goal is big or vague (e.g. "learn transformers"), you may split it into 2-3 concrete sub-steps about that same goal only.
-- Keep each task short (under 12 words), starting with a verb.
-- Return between 1 and 8 tasks, however many the text really needs. Do not pad the list.
-- Return ONLY a raw JSON array of strings, no markdown, no explanation.
-
-Brain dump: """${dumpText}"""`;
-                
-                let rawRes = await callGemini(prompt, 'quests');
-                rawRes = rawRes.replace(/```json/g, '').replace(/```/g, '').trim();
-
-                let quests;
-                try { quests = JSON.parse(rawRes); }
-                catch (e) {
-                    const m = rawRes.match(/\[[\s\S]*\]/);
-                    if (!m) throw new Error("Could not read the AI response");
-                    quests = JSON.parse(m[0]);
+                try {
+                    const quests = await askGeminiForTasks(dumpText);
+                    quests.forEach(text => { appData.dailyTasks.push({ id: Date.now() + Math.random(), text, completed: false }); });
+                    saveData();
+                    brainDumpInput.value = '';
+                    msgEl.innerText = "LLM successfully parsed and added your objectives!";
+                } catch (err) {
+                    if (!err.busy) throw err;   // real errors (bad key etc.) are shown as they are
+                    // Every AI model is busy -> labelled backup mode
+                    basicSplit(dumpText).forEach(text => {
+                        appData.dailyTasks.push({ id: Date.now() + Math.random(), text, completed: false, basic: true });
+                    });
+                    saveData();
+                    brainDumpInput.value = '';
+                    msgEl.innerText = "⚠️ Gemini is busy, so I added a basic split (no AI). Tap \"Re-organize with AI\" on any task when it's back.";
                 }
-                quests = quests.filter(q => typeof q === 'string' && q.trim());
-                if (!quests.length) throw new Error("AI returned no tasks");
-                
-                quests.forEach(text => { appData.dailyTasks.push({ id: Date.now() + Math.random(), text, completed: false }); });
-                saveData();
-                brainDumpInput.value = '';
-                msgEl.innerText = "LLM successfully parsed and added your objectives!";
             } catch (err) {
                 msgEl.innerText = `AI Request Failed: ${err.message}`;
             } finally {
                 document.getElementById('btnGenerate').disabled = false; loader.style.display = 'none';
+            }
+        };
+
+        // Re-run a basic-split task through the real AI and replace it with the AI's tasks
+        window.reorganizeWithAI = async (id) => {
+            const task = appData.dailyTasks.find(t => t.id === id);
+            if (!task) return;
+            if (!GEMINI_API_KEY) { openAIModal(); return; }
+
+            msgEl.style.display = 'block';
+            msgEl.innerText = "Re-organizing with AI...";
+            try {
+                const quests = await askGeminiForTasks(task.text);
+                const idx = appData.dailyTasks.findIndex(t => t.id === id);
+                const newTasks = quests.map(text => ({ id: Date.now() + Math.random(), text, completed: false }));
+                appData.dailyTasks.splice(idx, 1, ...newTasks);
+                updateActivityData();
+                saveData();
+                msgEl.innerText = "Re-organized with AI!";
+            } catch (err) {
+                msgEl.innerText = err.busy
+                    ? "Gemini is still busy, the task stays as a basic split. Try again in a bit."
+                    : `AI Request Failed: ${err.message}`;
             }
         };
 
